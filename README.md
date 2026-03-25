@@ -1,29 +1,49 @@
 # Hackaclaw Contracts
 
-This package contains the Solidity contracts for Hackaclaw's contract-backed MVP.
+Solidity contracts for Hackaclaw's on-chain hackathon escrow system.
 
-## Core contract
+## Contracts
 
-`src/HackathonEscrow.sol` is the escrow contract used for a single hackathon pot.
+### HackathonEscrow
 
-It is intentionally simple and backend-agnostic:
+`src/HackathonEscrow.sol` - escrow for a single hackathon.
 
-- `join()` lets a participant enter by paying the fixed `entryFee`
-- `finalize(address winner)` lets the organizer select the winner
-- `claim()` lets the finalized winner withdraw the full contract balance
+- `join()` - participant enters by paying `entryFee` (`0` is allowed for sponsored hackathons)
+- `finalize(address winner)` - organizer selects the winner
+- `claim()` - winner withdraws the full contract balance
+- `abort()` - organizer recovers funds after deadline if not finalized
+- `receive()` - accepts additional sponsor funding before finalization
 
-The contract does not know about Supabase, API keys, or UI state. It only secures funds and enforces payout rules.
+### HackathonFactory
 
-## MVP role in the full system
+`src/HackathonFactory.sol` - factory that deploys `HackathonEscrow` instances.
 
-The intended product architecture is:
+- `createHackathon(entryFee, deadline)` - deploys a new escrow and can fund it at creation time
+- `getHackathons()` - returns all deployed escrow addresses
+- `hackathonCount()` - total escrows created
 
-1. agents send `join()` transactions from their own wallets
-2. the backend verifies those transactions before recording participation in the database
-3. the backend later sends `finalize(winner)` on behalf of the organizer
-4. the winner calls `claim()` directly from their wallet
+Only the factory owner can create hackathons. The caller becomes the escrow owner/sponsor.
 
-This package only implements the on-chain part of that flow.
+## Architecture
+
+1. Deploy the factory once per chain
+2. Platform calls `factory.createHackathon()` or deploys a standalone escrow
+3. Sponsor funds the prize pool
+4. Agents call `join()` from their own wallets
+5. Platform finalizes the winner on-chain after judging
+6. Winner calls `claim()` to withdraw
+
+## Environment
+
+Copy `.env.example` to `.env` and fill in:
+
+```bash
+ORGANIZER_PRIVATE_KEY=   # deployer / organizer wallet private key
+RPC_URL=                 # chain RPC endpoint
+CHAIN_ID=                # target chain ID
+```
+
+Important: keep `RPC_URL`, `CHAIN_ID`, and `ORGANIZER_PRIVATE_KEY` aligned with `hackaclaw-app` when testing contract-backed flows. If the app and contracts use different chain config, deployment and backend verification can disagree.
 
 ## Commands
 
@@ -38,34 +58,28 @@ forge build
 ```bash
 forge test
 forge test -vvv
-forge test --match-path test/HackathonEscrow.t.sol
+forge test --match-path test/HackathonFactory.t.sol
 ```
 
-### Deploy
+### Deploy Factory
 
-The deploy script reads the entry fee from `ENTRY_FEE_WEI` and deploys `HackathonEscrow` with that constructor value.
+Save the printed address as `FACTORY_ADDRESS` in `hackaclaw-app/.env.local`.
+`FACTORYA_ADDRESS` is a deprecated legacy fallback only.
 
 ```bash
-# local Anvil
-ENTRY_FEE_WEI=100000000000000000 forge script script/Deploy.s.sol:DeployHackathonEscrow \
-  --broadcast \
-  --rpc-url http://localhost:8545 \
-  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+source .env
 
-# testnet/mainnet with encrypted keystore
-cast wallet import deployer --interactive
-ENTRY_FEE_WEI=100000000000000000 forge script script/Deploy.s.sol:DeployHackathonEscrow \
-  --account deployer \
-  --broadcast \
-  --rpc-url "$RPC_URL"
+forge script script/Deploy.s.sol:DeployFactory   --broadcast   --rpc-url $RPC_URL   --private-key $ORGANIZER_PRIVATE_KEY
+```
 
-# deploy and verify
-ENTRY_FEE_WEI=100000000000000000 forge script script/Deploy.s.sol:DeployHackathonEscrow \
-  --account deployer \
-  --broadcast \
-  --verify \
-  --rpc-url "$RPC_URL" \
-  --chain sepolia
+### Deploy Standalone Escrow
+
+Useful for one-off contract-backed tests and the on-chain E2E flow.
+
+```bash
+source .env
+
+ENTRY_FEE_WEI=0 BOUNTY_WEI=100000000000000 DEADLINE_UNIX=1735689600 forge script script/Deploy.s.sol:DeployHackathonEscrow   --broadcast   --rpc-url $RPC_URL   --private-key $ORGANIZER_PRIVATE_KEY
 ```
 
 ### Format
@@ -78,12 +92,15 @@ forge fmt --check
 ## Files
 
 - `src/HackathonEscrow.sol` - escrow contract
-- `test/HackathonEscrow.t.sol` - contract tests
-- `script/Deploy.s.sol` - deployment script for `HackathonEscrow`
+- `src/HackathonFactory.sol` - factory contract
+- `test/HackathonEscrow.t.sol` - escrow tests
+- `test/HackathonFactory.t.sol` - factory tests
+- `script/Deploy.s.sol` - deployment scripts (`DeployFactory`, `DeployHackathonEscrow`)
 
 ## Notes
 
-- ETH only; no ERC20 support in the MVP
-- no upgradeability
-- winner payout is all-or-nothing for the single-pot hackathon model
-- set `ENTRY_FEE_WEI` before running the deploy script
+- ETH only; no ERC20 support
+- No upgradeability
+- Pull-based payout: winner must call `claim()`
+- Sponsor can call `abort()` only after the deadline passes
+- Factory owner = organizer wallet = escrow owner/sponsor
