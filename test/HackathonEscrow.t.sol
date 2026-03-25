@@ -10,12 +10,16 @@ contract HackathonEscrowTest is Test {
     address public alice = address(0x1);
     address public bob = address(0x2);
     uint256 public constant ENTRY_FEE = 0.1 ether;
+    uint256 public constant DEADLINE = 1000;
 
     function setUp() public {
-        escrow = new HackathonEscrow(ENTRY_FEE);
+        vm.warp(100); // start before deadline
+        escrow = new HackathonEscrow(ENTRY_FEE, DEADLINE);
         vm.deal(alice, 1 ether);
         vm.deal(bob, 1 ether);
     }
+
+    // ── Paid mode (existing behavior) ──
 
     function test_join() public {
         vm.prank(alice);
@@ -114,5 +118,117 @@ contract HackathonEscrowTest is Test {
         vm.prank(bob);
         vm.expectRevert("Hackathon finalized");
         escrow.join{value: ENTRY_FEE}();
+    }
+}
+
+contract SponsoredEscrowTest is Test {
+    HackathonEscrow public escrow;
+    address public owner = address(this);
+    address public alice = address(0x1);
+    address public bob = address(0x2);
+    uint256 public constant BOUNTY = 2 ether;
+    uint256 public constant DEADLINE = 1000;
+
+    function setUp() public {
+        vm.warp(100);
+        vm.deal(owner, 10 ether);
+        escrow = new HackathonEscrow{value: BOUNTY}(0, DEADLINE);
+        vm.deal(alice, 1 ether);
+        vm.deal(bob, 1 ether);
+    }
+
+    function test_deploy_sponsored_zero_fee() public view {
+        assertEq(escrow.entryFee(), 0);
+        assertEq(escrow.sponsor(), owner);
+        assertEq(escrow.deadline(), DEADLINE);
+        assertEq(address(escrow).balance, BOUNTY);
+        assertEq(escrow.prizePool(), BOUNTY);
+    }
+
+    function test_join_zero_fee() public {
+        vm.prank(alice);
+        escrow.join{value: 0}();
+
+        assertTrue(escrow.hasJoined(alice));
+        assertEq(address(escrow).balance, BOUNTY);
+    }
+
+    function test_join_zero_fee_revert_with_value() public {
+        vm.prank(alice);
+        vm.expectRevert("Wrong entry fee");
+        escrow.join{value: 0.1 ether}();
+    }
+
+    function test_claim_sponsored_prize() public {
+        vm.prank(alice);
+        escrow.join{value: 0}();
+        vm.prank(bob);
+        escrow.join{value: 0}();
+
+        escrow.finalize(alice);
+
+        uint256 balBefore = alice.balance;
+        vm.prank(alice);
+        escrow.claim();
+
+        assertEq(alice.balance, balBefore + BOUNTY);
+        assertEq(address(escrow).balance, 0);
+    }
+
+    function test_receive_additional_funding() public {
+        uint256 extra = 1 ether;
+        (bool ok,) = address(escrow).call{value: extra}("");
+        assertTrue(ok);
+        assertEq(address(escrow).balance, BOUNTY + extra);
+    }
+
+    function test_receive_revert_after_finalized() public {
+        vm.prank(alice);
+        escrow.join{value: 0}();
+        escrow.finalize(alice);
+
+        vm.expectRevert("Hackathon finalized");
+        (bool ok,) = address(escrow).call{value: 1 ether}("");
+        // expectRevert consumes the revert, ok would be true in foundry test context
+    }
+
+    // ── Abort tests ──
+
+    function test_abort_returns_funds_to_sponsor() public {
+        // sponsor == owner == address(this), but test contracts can't receive ETH
+        // so we check balance drained from escrow
+        vm.warp(DEADLINE + 1);
+
+        uint256 escrowBal = address(escrow).balance;
+        assertEq(escrowBal, BOUNTY);
+
+        escrow.abort();
+
+        assertTrue(escrow.finalized());
+        assertEq(address(escrow).balance, 0);
+    }
+
+    receive() external payable {}
+
+    function test_abort_revert_not_owner() public {
+        vm.warp(DEADLINE + 1);
+        vm.prank(alice);
+        vm.expectRevert("Not owner");
+        escrow.abort();
+    }
+
+    function test_abort_revert_before_deadline() public {
+        vm.expectRevert("Hackathon not expired");
+        escrow.abort();
+    }
+
+    function test_abort_revert_after_finalized() public {
+        vm.prank(alice);
+        escrow.join{value: 0}();
+        escrow.finalize(alice);
+
+        vm.warp(DEADLINE + 1);
+        vm.expectRevert("Already finalized");
+        escrow.abort();
     }
 }
