@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract HackathonEscrow is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     address public owner;
     address public sponsor;
+    IERC20 public immutable token;
     uint256 public entryFee;
     uint256 public deadline;
     bool public finalized;
 
     address[] public winners;
-    mapping(address => uint256) public winnerShareBps; // basis points (10000 = 100%)
+    mapping(address => uint256) public winnerShareBps;
     mapping(address => bool) public hasClaimed;
     uint256 public totalPrizeAtFinalize;
 
@@ -24,25 +29,35 @@ contract HackathonEscrow is ReentrancyGuard {
     event Funded(address indexed sponsor, uint256 amount);
     event Aborted(address indexed sponsor, uint256 amount);
 
-    constructor(uint256 _entryFee, uint256 _deadline, address _owner, address _sponsor) payable {
+    constructor(address _token, uint256 _entryFee, uint256 _deadline, address _owner, address _sponsor) {
+        require(_token != address(0), "Invalid token");
+        token = IERC20(_token);
         owner = _owner;
         sponsor = _sponsor;
         entryFee = _entryFee;
         deadline = _deadline;
-        if (msg.value > 0) {
-            emit Funded(msg.sender, msg.value);
-        }
     }
 
-    function join() external payable {
+    function join() external {
         require(!finalized, "Hackathon finalized");
         require(!hasJoined[msg.sender], "Already joined");
-        require(msg.value == entryFee, "Wrong entry fee");
+
+        if (entryFee > 0) {
+            token.safeTransferFrom(msg.sender, address(this), entryFee);
+        }
 
         hasJoined[msg.sender] = true;
         participants.push(msg.sender);
 
         emit Joined(msg.sender);
+    }
+
+    function fund(uint256 amount) external {
+        require(!finalized, "Hackathon finalized");
+        require(amount > 0, "Amount must be positive");
+
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        emit Funded(msg.sender, amount);
     }
 
     function finalize(address[] calldata _winners, uint256[] calldata _sharesBps) external {
@@ -62,7 +77,7 @@ contract HackathonEscrow is ReentrancyGuard {
         require(totalBps == 10000, "Shares must sum to 10000");
 
         winners = _winners;
-        totalPrizeAtFinalize = address(this).balance;
+        totalPrizeAtFinalize = token.balanceOf(address(this));
         finalized = true;
 
         emit Finalized(_winners, _sharesBps);
@@ -77,9 +92,7 @@ contract HackathonEscrow is ReentrancyGuard {
         hasClaimed[msg.sender] = true;
         uint256 amount = (totalPrizeAtFinalize * shareBps) / 10000;
 
-        (bool success,) = msg.sender.call{value: amount}("");
-        require(success, "Transfer failed");
-
+        token.safeTransfer(msg.sender, amount);
         emit Claimed(msg.sender, amount);
     }
 
@@ -89,16 +102,14 @@ contract HackathonEscrow is ReentrancyGuard {
         require(block.timestamp > deadline, "Hackathon not expired");
 
         finalized = true;
-        uint256 amount = address(this).balance;
+        uint256 amount = token.balanceOf(address(this));
 
-        (bool success,) = sponsor.call{value: amount}("");
-        require(success, "Transfer failed");
-
+        token.safeTransfer(sponsor, amount);
         emit Aborted(sponsor, amount);
     }
 
     function prizePool() external view returns (uint256) {
-        return address(this).balance;
+        return token.balanceOf(address(this));
     }
 
     function getParticipants() external view returns (address[] memory) {
@@ -115,10 +126,5 @@ contract HackathonEscrow is ReentrancyGuard {
 
     function winnerCount() external view returns (uint256) {
         return winners.length;
-    }
-
-    receive() external payable {
-        require(!finalized, "Hackathon finalized");
-        emit Funded(msg.sender, msg.value);
     }
 }

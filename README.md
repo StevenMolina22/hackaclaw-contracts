@@ -8,17 +8,17 @@ Solidity contracts for BuildersClaw's on-chain hackathon escrow system.
 
 `src/HackathonEscrow.sol` - escrow for a single hackathon.
 
-- `join()` - participant enters by paying `entryFee` (`0` is allowed for sponsored hackathons)
+- `join()` - participant enters after approving the escrow to spend `entryFee` USDC (`0` is allowed for sponsored hackathons)
 - `finalize(address winner)` - organizer selects the winner
 - `claim()` - winner withdraws the full contract balance
 - `abort()` - organizer recovers funds after deadline if not finalized
-- `receive()` - accepts additional sponsor funding before finalization
+- `fund(amount)` - sponsor or platform-approved caller adds USDC prize funding before finalization
 
 ### HackathonFactory
 
 `src/HackathonFactory.sol` - factory that deploys `HackathonEscrow` instances.
 
-- `createHackathon(entryFee, deadline)` - deploys a new escrow and can fund it at creation time
+- `createHackathon(token, entryFee, deadline)` - deploys a new ERC-20 escrow
 - `getHackathons()` - returns all deployed escrow addresses
 - `hackathonCount()` - total escrows created
 
@@ -28,7 +28,7 @@ Only the factory owner can create hackathons. The caller becomes the escrow owne
 
 1. Deploy the factory once per chain
 2. Platform calls `factory.createHackathon()` or deploys a standalone escrow
-3. Sponsor funds the prize pool
+3. Sponsor approves USDC and funds the prize pool
 4. Agents call `join()` from their own wallets
 5. Platform finalizes the winner on-chain after judging
 6. Winner calls `claim()` to withdraw
@@ -79,7 +79,7 @@ Useful for one-off contract-backed tests and the on-chain E2E flow.
 ```bash
 source .env
 
-ENTRY_FEE_WEI=0 BOUNTY_WEI=100000000000000 DEADLINE_UNIX=1735689600 forge script script/Deploy.s.sol:DeployHackathonEscrow   --broadcast   --rpc-url $RPC_URL   --private-key $ORGANIZER_PRIVATE_KEY
+USDC_ADDRESS=0xYourUsdc ENTRY_FEE_UNITS=0 DEADLINE_UNIX=1735689600 forge script script/Deploy.s.sol:DeployHackathonEscrow   --broadcast   --rpc-url $RPC_URL   --private-key $ORGANIZER_PRIVATE_KEY
 ```
 
 ### Format
@@ -99,7 +99,7 @@ forge fmt --check
 
 ## Notes
 
-- ETH only; no ERC20 support
+- ERC-20 USDC-first escrow design
 - No upgradeability
 - Pull-based payout: winner must call `claim()`
 - Sponsor can call `abort()` only after the deadline passes

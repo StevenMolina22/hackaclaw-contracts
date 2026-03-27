@@ -7,17 +7,17 @@ import {HackathonFactory} from "../src/HackathonFactory.sol";
 
 contract DeployHackathonEscrow is Script {
     function run() external returns (HackathonEscrow escrow) {
-        uint256 entryFee = vm.envOr("ENTRY_FEE_WEI", uint256(0));
-        uint256 bounty = vm.envOr("BOUNTY_WEI", uint256(0));
+        address token = vm.envAddress("USDC_ADDRESS");
+        uint256 entryFee = vm.envOr("ENTRY_FEE_UNITS", uint256(0));
         uint256 deadline = vm.envUint("DEADLINE_UNIX");
 
         vm.startBroadcast();
-        escrow = new HackathonEscrow{value: bounty}(entryFee, deadline, msg.sender, msg.sender);
+        escrow = new HackathonEscrow(token, entryFee, deadline, msg.sender, msg.sender);
         vm.stopBroadcast();
 
         console.log("HackathonEscrow deployed at:", address(escrow));
-        console.log("Entry fee (wei):", entryFee);
-        console.log("Bounty (wei):", bounty);
+        console.log("USDC token:", token);
+        console.log("Entry fee (token units):", entryFee);
         console.log("Deadline (unix):", deadline);
     }
 }
