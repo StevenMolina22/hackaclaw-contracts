@@ -14,7 +14,7 @@ contract HackathonEscrowTest is Test {
 
     function setUp() public {
         vm.warp(100); // start before deadline
-        escrow = new HackathonEscrow(ENTRY_FEE, DEADLINE, address(this));
+        escrow = new HackathonEscrow(ENTRY_FEE, DEADLINE, address(this), address(this));
         vm.deal(alice, 1 ether);
         vm.deal(bob, 1 ether);
     }
@@ -132,7 +132,7 @@ contract SponsoredEscrowTest is Test {
     function setUp() public {
         vm.warp(100);
         vm.deal(owner, 10 ether);
-        escrow = new HackathonEscrow{value: BOUNTY}(0, DEADLINE, address(this));
+        escrow = new HackathonEscrow{value: BOUNTY}(0, DEADLINE, address(this), address(this));
         vm.deal(alice, 1 ether);
         vm.deal(bob, 1 ether);
     }
@@ -229,6 +229,68 @@ contract SponsoredEscrowTest is Test {
 
         vm.warp(DEADLINE + 1);
         vm.expectRevert("Already finalized");
+        escrow.abort();
+    }
+}
+
+contract SeparatedRolesEscrowTest is Test {
+    HackathonEscrow public escrow;
+    address public platform = address(0x10);
+    address public sponsorAddr = address(0x20);
+    address public alice = address(0x1);
+    uint256 public constant BOUNTY = 2 ether;
+    uint256 public constant DEADLINE = 1000;
+
+    function setUp() public {
+        vm.warp(100);
+        vm.deal(sponsorAddr, 10 ether);
+        vm.deal(alice, 1 ether);
+        // Sponsor deploys with platform as owner, themselves as sponsor
+        vm.prank(sponsorAddr);
+        escrow = new HackathonEscrow{value: BOUNTY}(0, DEADLINE, platform, sponsorAddr);
+    }
+
+    function test_separated_roles() public view {
+        assertEq(escrow.owner(), platform);
+        assertEq(escrow.sponsor(), sponsorAddr);
+        assertEq(escrow.prizePool(), BOUNTY);
+    }
+
+    function test_platform_can_finalize() public {
+        vm.prank(alice);
+        escrow.join{value: 0}();
+
+        vm.prank(platform);
+        escrow.finalize(alice);
+
+        assertTrue(escrow.finalized());
+        assertEq(escrow.winner(), alice);
+    }
+
+    function test_sponsor_cannot_finalize() public {
+        vm.prank(alice);
+        escrow.join{value: 0}();
+
+        vm.prank(sponsorAddr);
+        vm.expectRevert("Not owner");
+        escrow.finalize(alice);
+    }
+
+    function test_abort_refunds_sponsor_not_owner() public {
+        vm.warp(DEADLINE + 1);
+
+        uint256 sponsorBalBefore = sponsorAddr.balance;
+        vm.prank(platform);
+        escrow.abort();
+
+        assertEq(sponsorAddr.balance, sponsorBalBefore + BOUNTY);
+        assertEq(address(escrow).balance, 0);
+    }
+
+    function test_sponsor_cannot_abort() public {
+        vm.warp(DEADLINE + 1);
+        vm.prank(sponsorAddr);
+        vm.expectRevert("Not owner");
         escrow.abort();
     }
 }

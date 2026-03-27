@@ -15,7 +15,7 @@ contract HackathonFactory {
 
     function createHackathon(uint256 _entryFee, uint256 _deadline) external payable returns (address) {
         require(msg.sender == owner, "Not owner");
-        HackathonEscrow escrow = new HackathonEscrow{value: msg.value}(_entryFee, _deadline, msg.sender);
+        HackathonEscrow escrow = new HackathonEscrow{value: msg.value}(_entryFee, _deadline, msg.sender, msg.sender);
         hackathons.push(address(escrow));
         emit HackathonCreated(address(escrow), _entryFee, _deadline);
         return address(escrow);
