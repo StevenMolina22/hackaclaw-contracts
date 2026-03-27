@@ -12,7 +12,7 @@ contract DeployHackathonEscrow is Script {
         uint256 deadline = vm.envUint("DEADLINE_UNIX");
 
         vm.startBroadcast();
-        escrow = new HackathonEscrow{value: bounty}(entryFee, deadline, msg.sender);
+        escrow = new HackathonEscrow{value: bounty}(entryFee, deadline, msg.sender, msg.sender);
         vm.stopBroadcast();
 
         console.log("HackathonEscrow deployed at:", address(escrow));

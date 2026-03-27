@@ -71,9 +71,13 @@ contract HackathonFactoryTest is Test {
         assertTrue(escrow.hasJoined(alice));
 
         // Owner finalizes (owner == address(this))
-        escrow.finalize(alice);
+        address[] memory winners = new address[](1);
+        winners[0] = alice;
+        uint256[] memory shares = new uint256[](1);
+        shares[0] = 10000;
+        escrow.finalize(winners, shares);
         assertTrue(escrow.finalized());
-        assertEq(escrow.winner(), alice);
+        assertEq(escrow.getWinners()[0], alice);
 
         // Alice claims
         uint256 balBefore = alice.balance;

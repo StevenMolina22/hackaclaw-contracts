@@ -9,13 +9,17 @@ contract HackathonEscrow is ReentrancyGuard {
     uint256 public entryFee;
     uint256 public deadline;
     bool public finalized;
-    address public winner;
+
+    address[] public winners;
+    mapping(address => uint256) public winnerShareBps; // basis points (10000 = 100%)
+    mapping(address => bool) public hasClaimed;
+    uint256 public totalPrizeAtFinalize;
 
     mapping(address => bool) public hasJoined;
     address[] public participants;
 
     event Joined(address indexed participant);
-    event Finalized(address indexed winner);
+    event Finalized(address[] winners, uint256[] sharesBps);
     event Claimed(address indexed winner, uint256 amount);
     event Funded(address indexed sponsor, uint256 amount);
     event Aborted(address indexed sponsor, uint256 amount);
@@ -41,23 +45,37 @@ contract HackathonEscrow is ReentrancyGuard {
         emit Joined(msg.sender);
     }
 
-    function finalize(address _winner) external {
+    function finalize(address[] calldata _winners, uint256[] calldata _sharesBps) external {
         require(msg.sender == owner, "Not owner");
         require(!finalized, "Already finalized");
-        require(hasJoined[_winner], "Winner not a participant");
+        require(_winners.length > 0, "No winners");
+        require(_winners.length <= 20, "Too many winners");
+        require(_winners.length == _sharesBps.length, "Length mismatch");
 
-        winner = _winner;
+        uint256 totalBps;
+        for (uint256 i = 0; i < _winners.length; i++) {
+            require(winnerShareBps[_winners[i]] == 0, "Duplicate winner");
+            require(_sharesBps[i] > 0, "Zero share");
+            winnerShareBps[_winners[i]] = _sharesBps[i];
+            totalBps += _sharesBps[i];
+        }
+        require(totalBps == 10000, "Shares must sum to 10000");
+
+        winners = _winners;
+        totalPrizeAtFinalize = address(this).balance;
         finalized = true;
 
-        emit Finalized(_winner);
+        emit Finalized(_winners, _sharesBps);
     }
 
     function claim() external nonReentrant {
         require(finalized, "Not finalized");
-        require(msg.sender == winner, "Not winner");
+        uint256 shareBps = winnerShareBps[msg.sender];
+        require(shareBps > 0, "Not a winner");
+        require(!hasClaimed[msg.sender], "Already claimed");
 
-        uint256 amount = address(this).balance;
-        winner = address(0);
+        hasClaimed[msg.sender] = true;
+        uint256 amount = (totalPrizeAtFinalize * shareBps) / 10000;
 
         (bool success,) = msg.sender.call{value: amount}("");
         require(success, "Transfer failed");
@@ -85,6 +103,18 @@ contract HackathonEscrow is ReentrancyGuard {
 
     function getParticipants() external view returns (address[] memory) {
         return participants;
+    }
+
+    function getWinners() external view returns (address[] memory) {
+        return winners;
+    }
+
+    function getWinnerShare(address _winner) external view returns (uint256) {
+        return winnerShareBps[_winner];
+    }
+
+    function winnerCount() external view returns (uint256) {
+        return winners.length;
     }
 
     receive() external payable {
