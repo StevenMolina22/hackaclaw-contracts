@@ -3,10 +3,10 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import "../src/HackathonEscrow.sol";
-import "./mocks/MockERC20.sol";
+import "../src/mocks/MockUSDC.sol";
 
 contract HackathonEscrowTest is Test {
-    MockERC20 internal usdc;
+    MockUSDC internal usdc;
     HackathonEscrow internal escrow;
 
     address internal owner = address(this);
@@ -19,7 +19,7 @@ contract HackathonEscrowTest is Test {
     function setUp() public {
         vm.warp(100);
 
-        usdc = new MockERC20("Mock USDC", "USDC", 18);
+        usdc = new MockUSDC("Mock USDC", "USDC", 18);
         escrow = new HackathonEscrow(address(usdc), ENTRY_FEE, DEADLINE, owner, sponsor);
 
         usdc.mint(alice, 1_000e18);

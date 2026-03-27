@@ -4,11 +4,11 @@ pragma solidity ^0.8.19;
 import "forge-std/Test.sol";
 import "../src/HackathonFactory.sol";
 import "../src/HackathonEscrow.sol";
-import "./mocks/MockERC20.sol";
+import "../src/mocks/MockUSDC.sol";
 
 contract HackathonFactoryTest is Test {
     HackathonFactory internal factory;
-    MockERC20 internal usdc;
+    MockUSDC internal usdc;
 
     address internal owner = address(this);
     address internal alice = address(0x1);
@@ -17,7 +17,7 @@ contract HackathonFactoryTest is Test {
     function setUp() public {
         vm.warp(100);
         factory = new HackathonFactory();
-        usdc = new MockERC20("Mock USDC", "USDC", 18);
+        usdc = new MockUSDC("Mock USDC", "USDC", 18);
     }
 
     function test_create_hackathon() public {
